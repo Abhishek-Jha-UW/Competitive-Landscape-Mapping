@@ -53,6 +53,12 @@ with st.sidebar:
 
     st.divider()
 
+    # NEW FIELD — must appear BEFORE the button
+    product_category = st.text_input(
+        "Product Category / Niche",
+        placeholder="e.g., Shock Absorbers, Automotive Suspension Systems"
+    )
+
     richness = st.selectbox(
         "Data Richness",
         ["Standard", "High", "Maximum"],
@@ -76,7 +82,6 @@ with st.sidebar:
     )
 
     run_button = st.button("Generate Landscape", type="primary", use_container_width=True)
-
 # -----------------------------
 # MAIN UI - Results Area
 # -----------------------------
