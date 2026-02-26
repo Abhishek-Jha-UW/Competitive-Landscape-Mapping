@@ -122,8 +122,10 @@ if run_button:
                     competitors = find_competitors(
                         company=target_company,
                         industry=industry,
+                        product_category=product_category,
                         n_competitors=n_competitors,
                     )
+                    
 
                 if not competitors:
                     st.error("No competitors could be determined. Please try Manual mode or adjust inputs.")
