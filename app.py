@@ -53,9 +53,9 @@ with st.sidebar:
 
     st.divider()
 
-    # NEW FIELD — must appear BEFORE the button
+    # OPTIONAL niche field
     product_category = st.text_input(
-        "Product Category / Niche",
+        "Product Category / Niche (Optional)",
         placeholder="e.g., Shock Absorbers, Automotive Suspension Systems"
     )
 
@@ -82,6 +82,7 @@ with st.sidebar:
     )
 
     run_button = st.button("Generate Landscape", type="primary", use_container_width=True)
+
 # -----------------------------
 # MAIN UI - Results Area
 # -----------------------------
@@ -91,11 +92,11 @@ if not run_button:
     st.info("👈 Fill in the details in the sidebar and click 'Generate Landscape' to start.")
     st.markdown(
         """
-    ### How it works:
-    1. **LLM Synthesis:** The tool uses GPT-4o-mini to research and score brands.
-    2. **Dimensionality Reduction:** We compress high-dimensional scores into 2D space.
-    3. **Market Mapping:** We visualize the 'White Space' where you can differentiate.
-    """
+        ### How it works:
+        1. **LLM Synthesis:** The tool uses GPT-4o-mini to research and score brands.
+        2. **Dimensionality Reduction:** We compress high-dimensional scores into 2D space.
+        3. **Market Mapping:** We visualize the 'White Space' where you can differentiate.
+        """
     )
 
 if run_button:
@@ -110,22 +111,32 @@ if run_button:
 
         # Get richness config
         n_attributes, n_competitors = get_richness_config(richness)  # type: ignore
-
+        
         try:
             with st.status("🏗️ Building your market map...", expanded=True) as status:
                 # 1. Competitors
                 st.write("🏢 Identifying competitors...")
+
                 if competitor_mode == "Manual Input":
                     competitors_raw = [c for c in competitors_input.split(",") if c.strip()]
                     competitors = normalize_names(competitors_raw)
                 else:
-                    competitors = find_competitors(
-                        company=target_company,
-                        industry=industry,
-                        product_category=product_category,
-                        n_competitors=n_competitors,
-                    )
-                    
+                    # If product category is provided → niche-specific competitor discovery
+                    if product_category.strip():
+                        competitors = find_competitors(
+                            company=target_company,
+                            industry=industry,
+                            product_category=product_category,
+                            n_competitors=n_competitors,
+                        )
+                    else:
+                        # Fallback: general competitor discovery
+                        competitors = find_competitors(
+                            company=target_company,
+                            industry=industry,
+                            product_category=industry,  # fallback to industry itself
+                            n_competitors=n_competitors,
+                        )
 
                 if not competitors:
                     st.error("No competitors could be determined. Please try Manual mode or adjust inputs.")
@@ -137,7 +148,6 @@ if run_button:
 
                 # Limit competitors to richness config
                 competitors = competitors[:n_competitors]
-
                 all_companies = [target_company] + competitors
 
                 # 2. Attributes
@@ -172,16 +182,16 @@ if run_button:
             with col1:
                 st.header("1. Perceptual Map")
 
-                coords_df = coords_df.copy()
-                coords_df["Type"] = [
-                    "Target Brand" if i == target_company else "Competitor" for i in coords_df.index
+                coords_plot_df = coords_df.copy()
+                coords_plot_df["Type"] = [
+                    "Target Brand" if i == target_company else "Competitor" for i in coords_plot_df.index
                 ]
 
                 fig = px.scatter(
-                    coords_df,
+                    coords_plot_df,
                     x="x",
                     y="y",
-                    text=coords_df.index,
+                    text=coords_plot_df.index,
                     color="Type",
                     color_discrete_map={"Target Brand": "#EF553B", "Competitor": "#636EFA"},
                     title=f"Market Positioning: {industry}",
