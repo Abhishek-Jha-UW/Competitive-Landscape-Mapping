@@ -11,11 +11,9 @@ from sklearn.manifold import MDS
 from sklearn.preprocessing import StandardScaler
 
 # Load environment variables
-load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
+import streamlit as st from dotenv import load_dotenv load_dotenv() OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 if OPENAI_API_KEY is None:
-    raise ValueError("OPENAI_API_KEY not found. Please set it in your local .env file.")
+    raise ValueError("OPENAI_API_KEY not found. Add it to .env (local) or st.secrets (Streamlit Cloud).")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
