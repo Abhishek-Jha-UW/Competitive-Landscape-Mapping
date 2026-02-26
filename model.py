@@ -5,15 +5,22 @@ from typing import List, Dict, Literal, Tuple
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+import streamlit as st
 from openai import OpenAI
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
 from sklearn.preprocessing import StandardScaler
 
 # Load environment variables
-import streamlit as st from dotenv import load_dotenv load_dotenv() OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+load_dotenv()
+
+# Load API key (Streamlit Cloud → st.secrets, Local → .env)
+OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+
 if OPENAI_API_KEY is None:
-    raise ValueError("OPENAI_API_KEY not found. Add it to .env (local) or st.secrets (Streamlit Cloud).")
+    raise ValueError(
+        "OPENAI_API_KEY not found. Add it to .env (local) or st.secrets (Streamlit Cloud)."
+    )
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
