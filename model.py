@@ -160,23 +160,26 @@ def generate_attributes(
 def find_competitors(
     company: str,
     industry: str,
+    product_category: str,
     n_competitors: int = 10,
 ) -> List[str]:
     """
-    Use the LLM to discover key competitors for a given company and industry.
+    Use the LLM to discover niche-specific competitors.
     """
-    system_prompt = "You are a market research assistant."
+    system_prompt = "You are a market research analyst specializing in niche competitor identification."
+
     user_prompt = (
-        f"Identify {n_competitors} major direct competitors for the company '{company}' "
-        f"in the '{industry}' industry. Focus on realistic, well-known or highly relevant players. "
+        f"Identify {n_competitors} direct competitors for the company '{company}'.\n"
+        f"Industry: {industry}\n"
+        f"Product Category / Niche: {product_category}\n\n"
+        "Focus ONLY on companies that manufacture similar products or operate in the same niche.\n"
+        "Avoid large general conglomerates unless they directly compete in this product category.\n"
         "Return a JSON object with a key 'competitors' containing a list of company names."
     )
 
     data = _call_llm_json(system_prompt, user_prompt, temperature=0.3)
-    competitors = [str(c).strip() for c in data.get("competitors", []) if str(c).strip()]
-
+    competitors = [str(c).strip() for c in data.get('competitors', []) if str(c).strip()]
     return normalize_names(competitors)[:n_competitors]
-
 
 # -----------------------------
 # COMPANY SCORING
