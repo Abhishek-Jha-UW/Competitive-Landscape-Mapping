@@ -1,8 +1,9 @@
 import io
 from datetime import datetime, timezone
 
+import numpy as np
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from model import (
@@ -42,6 +43,151 @@ def _apply_example(industry: str, target: str, competitors: str, niche: str = ""
     st.session_state["competitors_in"] = competitors
     st.session_state["product_cat_in"] = niche
     st.session_state["competitor_mode_radio"] = "Manual Input"
+
+
+def _method_label(method: str) -> str:
+    return {
+        "pca": "PCA",
+        "mds": "MDS",
+        "tsne": "t-SNE",
+        "umap": "UMAP",
+    }.get(method, method.upper())
+
+
+def _neighbor_distance_table(coords_df: pd.DataFrame, target: str, top_n: int = 6) -> pd.DataFrame:
+    """Euclidean distance on the 2D map from the target brand."""
+    if target not in coords_df.index or coords_df.shape[0] < 2:
+        return pd.DataFrame()
+    xy = coords_df[["x", "y"]].to_numpy(dtype=float)
+    names = list(coords_df.index)
+    ti = names.index(target)
+    center = xy[ti]
+    dists = np.sqrt(((xy - center) ** 2).sum(axis=1))
+    order = np.argsort(dists)
+    rows: list[dict[str, object]] = []
+    for j in order[1 : top_n + 1]:
+        rows.append({"Brand": names[int(j)], "Map distance": round(float(dists[int(j)]), 3)})
+    return pd.DataFrame(rows)
+
+
+def _build_perceptual_figure(
+    coords_df: pd.DataFrame,
+    target_company: str,
+    industry: str,
+    method: str,
+    reduction: ReductionOutput,
+) -> go.Figure:
+    if target_company not in coords_df.index:
+        raise ValueError("Target company missing from coordinates.")
+
+    others = coords_df.drop(index=[target_company], errors="ignore")
+    trow = coords_df.loc[target_company]
+
+    fig = go.Figure()
+
+    if not others.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=others["x"],
+                y=others["y"],
+                mode="markers+text",
+                text=list(others.index),
+                textposition="top center",
+                name="Competitor",
+                marker=dict(
+                    size=17,
+                    color="#5B6CFF",
+                    opacity=0.92,
+                    line=dict(color="#FFFFFF", width=2),
+                    symbol="circle",
+                ),
+                textfont=dict(size=12, color="#0F172A", family="Inter, Segoe UI, system-ui, sans-serif"),
+                hovertemplate=(
+                    "<b>%{text}</b><br>"
+                    "Role: Competitor<br>"
+                    "x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>"
+                ),
+            )
+        )
+
+    fig.add_trace(
+        go.Scatter(
+            x=[float(trow["x"])],
+            y=[float(trow["y"])],
+            mode="markers+text",
+            text=[target_company],
+            textposition="top center",
+            name="Target brand",
+            marker=dict(
+                size=24,
+                color="#FF5A4A",
+                opacity=0.95,
+                line=dict(color="#FFFFFF", width=3),
+                symbol="diamond",
+            ),
+            textfont=dict(size=13, color="#0F172A", family="Inter, Segoe UI, system-ui, sans-serif"),
+            hovertemplate=(
+                "<b>%{text}</b><br>"
+                "Role: Target<br>"
+                "x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>"
+            ),
+        )
+    )
+
+    subtitle = f"{_method_label(method)} · {reduction.summary_line}"
+    fig.update_layout(
+        title=dict(
+            text=f"<span style='font-size:22px'><b>{industry}</b></span><br>"
+            f"<span style='font-size:13px;color:#475569'>{subtitle}</span>",
+            x=0.5,
+            xanchor="center",
+            y=0.97,
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.05,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(255,255,255,0.75)",
+            bordercolor="rgba(148,163,184,0.45)",
+            borderwidth=1,
+        ),
+        paper_bgcolor="#F4F6FB",
+        plot_bgcolor="#FAFBFE",
+        margin=dict(l=28, r=28, t=120, b=72),
+        font=dict(family="Inter, Segoe UI, system-ui, sans-serif", color="#0F172A", size=13),
+        hoverlabel=dict(bgcolor="white", font_size=13),
+        xaxis=dict(
+            title=dict(text=reduction.x_axis_title, font=dict(size=13, color="#334155")),
+            showgrid=True,
+            gridcolor="rgba(148, 163, 184, 0.35)",
+            zeroline=True,
+            zerolinecolor="rgba(100, 116, 139, 0.35)",
+            zerolinewidth=1,
+            showline=True,
+            linecolor="rgba(15, 23, 42, 0.18)",
+            mirror=True,
+            tickfont=dict(size=11, color="#475569"),
+        ),
+        yaxis=dict(
+            title=dict(text=reduction.y_axis_title, font=dict(size=13, color="#334155")),
+            showgrid=True,
+            gridcolor="rgba(148, 163, 184, 0.35)",
+            zeroline=True,
+            zerolinecolor="rgba(100, 116, 139, 0.35)",
+            zerolinewidth=1,
+            showline=True,
+            linecolor="rgba(15, 23, 42, 0.18)",
+            mirror=True,
+            tickfont=dict(size=11, color="#475569"),
+            scaleanchor="x",
+            scaleratio=1,
+        ),
+        height=700,
+    )
+
+    return fig
 
 
 _ensure_widget_keys()
@@ -230,38 +376,33 @@ if run_button:
 
             coords_df = reduction.coords_df
 
-            col1, col2 = st.columns([2, 1])
+            st.subheader("1. Perceptual map")
+            fig = _build_perceptual_figure(
+                coords_df,
+                target_company=target_company,
+                industry=industry,
+                method=method,
+                reduction=reduction,
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
-            with col1:
-                st.subheader("1. Perceptual map")
-                st.caption(reduction.summary_line)
+            st.subheader("Reading the map")
+            read_l, read_r = st.columns((1.35, 1.0))
+            with read_l:
+                with st.container(border=True):
+                    st.markdown(reduction.axis_explanation_md)
+            with read_r:
+                with st.container(border=True):
+                    st.markdown("**Closest peers on the map**")
+                    st.caption("Straight-line distance in the 2D layout (not geographic).")
+                    nn = _neighbor_distance_table(coords_df, target_company, top_n=6)
+                    if nn.empty:
+                        st.caption("Add at least one competitor to see peer distances.")
+                    else:
+                        st.dataframe(nn, use_container_width=True, hide_index=True)
 
-                coords_plot_df = coords_df.copy()
-                coords_plot_df["Type"] = [
-                    "Target Brand" if i == target_company else "Competitor" for i in coords_plot_df.index
-                ]
-
-                fig = px.scatter(
-                    coords_plot_df,
-                    x="x",
-                    y="y",
-                    text=coords_plot_df.index,
-                    color="Type",
-                    color_discrete_map={"Target Brand": "#EF553B", "Competitor": "#636EFA"},
-                    title=f"Market positioning — {industry}",
-                    template="plotly_white",
-                    height=620,
-                    labels={"x": reduction.x_axis_title, "y": reduction.y_axis_title},
-                )
-                fig.update_traces(
-                    textposition="top center",
-                    marker=dict(size=14, line=dict(width=2, color="DarkSlateGrey")),
-                )
-                fig.update_layout(xaxis_title=reduction.x_axis_title, yaxis_title=reduction.y_axis_title)
-                st.plotly_chart(fig, use_container_width=True)
-
-            with col2:
-                st.subheader("2. Strategic insights")
+            st.subheader("2. Strategic insights")
+            with st.container(border=True):
                 st.markdown(insights)
 
             st.divider()
@@ -293,6 +434,7 @@ if run_button:
                     f"- **Target:** {target_company}\n"
                     f"- **Method:** {method.upper()} — {reduction.summary_line}\n"
                     f"- **Brands:** {', '.join(all_companies)}\n\n"
+                    f"## How to read the map\n\n{reduction.axis_explanation_md}\n\n"
                     f"## Insights\n\n{insights}\n"
                 )
                 st.download_button(
@@ -316,7 +458,7 @@ if run_button:
             png_row = st.columns(2)
             with png_row[0]:
                 try:
-                    png_bytes = fig.to_image(format="png", width=1200, height=800, scale=1)
+                    png_bytes = fig.to_image(format="png", width=1400, height=900, scale=1)
                     st.download_button(
                         label="Chart PNG",
                         data=png_bytes,
@@ -329,7 +471,7 @@ if run_button:
 
             with png_row[1]:
                 try:
-                    svg_bytes = fig.to_image(format="svg", width=1200, height=800, scale=1)
+                    svg_bytes = fig.to_image(format="svg", width=1400, height=900, scale=1)
                     st.download_button(
                         label="Chart SVG",
                         data=svg_bytes,

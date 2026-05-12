@@ -57,6 +57,7 @@ class ReductionOutput:
     x_axis_title: str
     y_axis_title: str
     summary_line: str
+    axis_explanation_md: str
 
 
 # -----------------------------
@@ -154,30 +155,76 @@ def normalize_names(names: List[str]) -> List[str]:
     return normalized
 
 
-def _axis_label_from_loadings(
+def _pca_axis_reading_sentence(
     component: np.ndarray,
     attr_names: List[str],
-    prefix: str,
-    top_k: int = 2,
+    hi_label: str,
+    lo_label: str,
+    max_traits: int = 4,
 ) -> str:
-    """Short label: top positive and negative loadings for one PC."""
+    """Plain-language contrast for one principal component (standardized loadings)."""
     if component.size == 0 or not attr_names:
-        return prefix
-    order = np.argsort(np.abs(component))[::-1]
-    picks: List[str] = []
-    for idx in order[: max(top_k * 3, 6)]:
-        if len(picks) >= top_k * 2:
-            break
-        a = attr_names[int(idx)]
-        w = float(component[idx])
-        if abs(w) < 1e-6:
-            continue
-        sign = "+" if w >= 0 else "-"
-        picks.append(f"{a} ({sign})")
-    if not picks:
-        return prefix
-    label = ", ".join(picks[:4])
-    return f"{prefix}: {label}"
+        return f"Axis contrasts perceptions toward the **{hi_label}** vs **{lo_label}**."
+
+    pairs = [(attr_names[i], float(component[i])) for i in range(len(attr_names))]
+    pos = sorted([p for p in pairs if p[1] > 1e-9], key=lambda t: -t[1])[:max_traits]
+    neg = sorted([p for p in pairs if p[1] < -1e-9], key=lambda t: t[1])[:max_traits]
+    pos_s = ", ".join(f"**{a}**" for a, _ in pos) if pos else "mixed strengths"
+    neg_s = ", ".join(f"**{a}**" for a, _ in neg) if neg else "mixed strengths"
+
+    return (
+        f"Toward the **{hi_label}**, brands skew higher on {pos_s}. "
+        f"Toward the **{lo_label}**, they skew higher on {neg_s}."
+    )
+
+
+def _pca_axis_guide_markdown(
+    comp: np.ndarray,
+    ev: np.ndarray,
+    attr_names: List[str],
+) -> str:
+    p1, p2 = 100.0 * float(ev[0]), 100.0 * float(ev[1])
+    intro = (
+        "These axes come from **PCA** on your 1–10 attribute scores (each attribute is standardized "
+        "so big scales do not dominate). Each axis is a *blend* of attributes—the main statistical "
+        "themes that separate brands in *this* competitor set."
+    )
+    h1 = (
+        f"**Horizontal axis (PC1)** explains about **{p1:.0f}%** of the variation between brands. "
+        f"{_pca_axis_reading_sentence(comp[0], attr_names, 'right', 'left')}"
+    )
+    h2 = (
+        f"**Vertical axis (PC2)** explains about **{p2:.0f}%** of the variation. "
+        f"{_pca_axis_reading_sentence(comp[1], attr_names, 'top', 'bottom')}"
+    )
+    tail = (
+        "**Tip:** Points that sit close together are broadly similar across the full attribute set; "
+        "large gaps suggest differentiated positioning."
+    )
+    return "\n\n".join([intro, h1, h2, tail])
+
+
+def _generic_axis_guide_markdown(method: ReductionMethod, summary_line: str) -> str:
+    if method == "mds":
+        body = (
+            "**MDS** arranges brands so that *map distance* reflects dissimilarity across all attributes "
+            "(after standardization). The two axes are mathematical convenience—read the chart by **distance** "
+            "and clusters, not by the numeric tick values alone."
+        )
+    elif method == "tsne":
+        body = (
+            "**t-SNE** emphasizes **local neighborhoods**: nearby points tend to be similar, but **global "
+            "distance** between far-apart clusters is not strictly meaningful. Use it to spot peer groups "
+            "and outliers."
+        )
+    elif method == "umap":
+        body = (
+            "**UMAP** balances local structure with broader separation. Nearby brands are typically similar; "
+            "axes are abstract—interpret **relative spacing** and tight clusters more than exact coordinates."
+        )
+    else:
+        body = "Axes summarize multi-attribute perceptions; interpret relative positions and clusters."
+    return body + f"\n\n*{summary_line}*"
 
 
 # -----------------------------
@@ -353,18 +400,20 @@ def reduce_dimensions(
         ev = reducer.explained_variance_ratio_
         pct = [100.0 * float(ev[0]), 100.0 * float(ev[1])]
         comp = reducer.components_
-        x_lab = _axis_label_from_loadings(comp[0], attr_names, "PC1")
-        y_lab = _axis_label_from_loadings(comp[1], attr_names, "PC2")
+        x_lab = f"PC1 — {pct[0]:.0f}% of variance"
+        y_lab = f"PC2 — {pct[1]:.0f}% of variance"
         summary = f"PCA — PC1 {pct[0]:.1f}% · PC2 {pct[1]:.1f}% variance (standardized inputs)"
+        axis_md = _pca_axis_guide_markdown(comp, np.asarray(ev), attr_names)
         coords_df = pd.DataFrame(coords, index=feature_df.index, columns=["x", "y"])
-        return ReductionOutput(coords_df, x_lab, y_lab, summary)
+        return ReductionOutput(coords_df, x_lab, y_lab, summary, axis_md)
 
     if method == "mds":
         reducer = MDS(n_components=2, random_state=random_state)
         coords = reducer.fit_transform(X_scaled)
         summary = "MDS (metric) on standardized attributes — distances reflect dissimilarity"
         coords_df = pd.DataFrame(coords, index=feature_df.index, columns=["x", "y"])
-        return ReductionOutput(coords_df, "Dimension 1", "Dimension 2", summary)
+        axis_md = _generic_axis_guide_markdown("mds", summary)
+        return ReductionOutput(coords_df, "Dimension 1", "Dimension 2", summary, axis_md)
 
     if method == "tsne":
         perplexity = float(max(1, min(30, n_samples - 1)))
@@ -381,7 +430,8 @@ def reduce_dimensions(
         coords = reducer.fit_transform(X_scaled)
         summary = f"t-SNE (perplexity={perplexity:.0f}) — local neighborhoods on standardized attributes"
         coords_df = pd.DataFrame(coords, index=feature_df.index, columns=["x", "y"])
-        return ReductionOutput(coords_df, "t-SNE 1", "t-SNE 2", summary)
+        axis_md = _generic_axis_guide_markdown("tsne", summary)
+        return ReductionOutput(coords_df, "t-SNE 1", "t-SNE 2", summary, axis_md)
 
     if method == "umap":
         try:
@@ -401,7 +451,8 @@ def reduce_dimensions(
         coords = reducer.fit_transform(X_scaled)
         summary = f"UMAP (n_neighbors={n_neighbors}) on standardized attributes"
         coords_df = pd.DataFrame(coords, index=feature_df.index, columns=["x", "y"])
-        return ReductionOutput(coords_df, "UMAP 1", "UMAP 2", summary)
+        axis_md = _generic_axis_guide_markdown("umap", summary)
+        return ReductionOutput(coords_df, "UMAP 1", "UMAP 2", summary, axis_md)
 
     raise ValueError(f"Unknown method: {method}")
 
@@ -449,8 +500,8 @@ def generate_insights_live(
     map_summary: str,
 ) -> str:
     """Serialize frames for cache key stability."""
-    buf_c = pd.io.common.StringIO()
-    buf_f = pd.io.common.StringIO()
+    buf_c = StringIO()
+    buf_f = StringIO()
     coords_df.to_csv(buf_c)
     feature_df.to_csv(buf_f)
     return generate_insights(buf_c.getvalue(), target_company, buf_f.getvalue(), map_summary)
